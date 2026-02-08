@@ -20,6 +20,7 @@ sqlink-task/
 ├── approach_analysis.jsx                # Interactive React comparison UI
 ├── approaches_comparison.md             # Side-by-side flow comparison (A vs B vs D)
 ├── agent.md                             # V17 skill prompt library for AI-assisted extensions
+├── .ai-config/v17-skill-library.md      # Rule book for AI agents (upload before any session)
 ├── plan_diagram.mermaid                 # Visual phase dependency graph
 │
 ├── FINAL_STATE.md                       # Phase 1–4 completion tracking
@@ -63,6 +64,16 @@ dotnet test
 .\testAll.ps1
 ```
 
+> **⚠️ PowerShell Execution Policy Error?** If you see `cannot be loaded... is not digitally signed`, run with bypass:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File .\testAll.ps1
+> powershell -ExecutionPolicy Bypass -File .\buildAll.ps1
+> ```
+> Or set it permanently for your user:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+> ```
+
 ---
 
 ## 🏗️ The 3 Approaches
@@ -73,26 +84,37 @@ The safe, expected solution. Classical .NET Clean Architecture with EF Core, dom
 
 - **Engine:** Transaction-specific (`WorkflowEngine` knows about transactions)
 - **Error handling:** Domain exceptions → ProblemDetails middleware
+- **State flexibility:** Fixed — changing state combinations requires code changes
 - **Extensibility:** Adding "Orders" requires new code (engine + tables + service)
 - **Best for:** Evaluators who want to see exactly what they asked for
 
-### Approach B — "DNA-Infused Multi-Tenant Engine"
+### Approach B — "DNA-Infused Multi-Tenant Engine" ⭐ Most Flexible
 
-The platform play. Introduces an `EntityType` discriminator — one set of database tables manages workflows for **any entity type** simultaneously.
+The platform play. Introduces an `EntityType` discriminator — one set of database tables manages workflows for **any entity type** simultaneously. **Easiest to change state combinations later** because the engine is fully data-driven and scoped by entity type.
 
 - **Engine:** Entity-agnostic (`TryTransitionAsync("transaction", ...)`)
 - **Error handling:** `DataProcessResult<T>` → `ResultMapper` → ProblemDetails
+- **State flexibility:** Maximum — add/remove/rewire states and transitions via SQL only, per entity type, even per tenant
 - **Extensibility:** Adding "Orders" = SQL INSERT only, **zero code changes**
 - **Best for:** Evaluators who value architectural vision and platform thinking
 
-### Approach D — "Strategic Hybrid" ⭐ Recommended
+### Approach D — "Strategic Hybrid" ⭐ Recommended Starting Point
 
-The sweet spot. Looks like a standard .NET project on the outside, but uses Freedom Machine patterns on the inside. 80% of B's benefits with 20% of the complexity.
+The sweet spot. Looks like a standard .NET project on the outside, but uses Freedom Machine patterns on the inside. 80% of B's benefits with 20% of the complexity. Has the JSON `Rules` column and `DataProcessResult`, but lacks B's `EntityType` scoping — meaning it handles one workflow type per deployment.
 
 - **Engine:** Generic (depends only on `IWorkflowRepository`, not entity repos)
 - **Error handling:** `DataProcessResult<T>` → `ResultMapper` → ProblemDetails
+- **State flexibility:** Good — add/remove states via SQL, dynamic rules via JSON, but single entity scope
 - **Extensibility:** JSON rules in DB for dynamic business logic, new adapter code for new entities
 - **Best for:** Evaluators who want clean code PLUS evidence of deeper thinking
+
+### Which Approach Is Easiest to Change State Combinations Later?
+
+**Approach B wins decisively.** The `EntityType` field on `WorkflowStatus` and `WorkflowTransition` turns the state machine from a single hardwired graph into a **registry of unlimited graphs**, all managed via data. The engine code is truly generic — it receives `entityType` as a parameter and looks up that type's graph from the database.
+
+D is a solid middle ground — it has `DataProcessResult` and `Rules` which make it maintainable. But the moment you need a second workflow type (orders, support tickets), you're essentially rewriting D into B.
+
+A requires code changes for almost any non-trivial state combination change.
 
 ---
 
@@ -100,12 +122,26 @@ The sweet spot. Looks like a standard .NET project on the outside, but uses Free
 
 > *"Can a business user change the workflow without a developer?"*
 
+### Core Capabilities
+
 | Capability | A | B | D |
 |------------|---|---|---|
 | Add new status | ✅ SQL INSERT | ✅ SQL INSERT (scoped by EntityType) | ✅ SQL INSERT |
 | Add new entity type (e.g. Orders) | ❌ New code | ✅ **SQL only — zero code** | ❌ New adapter code |
 | Add business rule (e.g. maxRetries) | ❌ C# change | ✅ JSON column + generic evaluator | ✅ JSON column + generic evaluator |
 | Swap database provider | ❌ Coupled to EF | 🟡 Behind interfaces | 🟡 Behind interfaces |
+
+### State Combination Change Scenarios
+
+These scenarios reveal the real cost of changing workflows after deployment:
+
+| Scenario | A | D | B |
+|----------|---|---|---|
+| **Add "ON_HOLD" between PROCESSING → COMPLETED** | ✅ SQL INSERT | ✅ SQL INSERT + Rules | ✅ SQL INSERT + Rules |
+| **Add "order" workflow (PENDING → SHIPPED → DELIVERED)** | 🔴 New engine + tables + service | 🔴 Add EntityType column, refactor engine — essentially rewrite into B | 🟢 **SQL INSERT only — zero code** |
+| **Same entity, different workflow per tenant** | 🔴 Impossible | 🔴 Impossible — single scope | 🟢 Use EntityType as composite key (`"transaction-clientA"` vs `"transaction-clientB"`) |
+| **Add role-based permission to a transition** | 🔴 Hardcode `if (role == "Admin")` | 🟢 Add JSON rule `{"allowedRoles":["Manager"]}` + 10-line evaluator | 🟢 Same as D — rules engine exists |
+| **Remove "FAILED → VALIDATED" retry path** | ✅ DELETE SQL row | ✅ DELETE SQL row | ✅ DELETE SQL row |
 
 ---
 
@@ -339,9 +375,27 @@ public async Task<DataProcessResult<TransitionOutcome>> TryTransitionAsync(
 |-----------|-------------|-------------------|------------|
 | Complexity | Low | High (conceptually) | Medium |
 | Flexibility | Low | **Maximum** | Medium (JSON rules) |
+| State change cost | 🔴 Code changes likely | 🟢 **SQL only — always** | 🟡 SQL for single type, code for multi |
 | Code reuse | None | **Total** (shared engine) | High (patterns) |
 | New entity cost | New engine + tables + service | **Zero code — SQL only** | New adapter + service |
+| Tenant isolation | ❌ Not possible | ✅ `EntityType` composite key | ❌ Not possible |
+| Dynamic transition rules | ❌ Not supported | ✅ JSON `Rules` column + evaluator | ✅ JSON `Rules` column + evaluator |
+| `DataProcessResult` | ❌ Throws exceptions | ✅ Structured results + metadata | ✅ Structured results + metadata |
+| Dynamic entity metadata | ❌ Fixed schema | ✅ `Metadata` JSON column | ✅ `Metadata` JSON column |
 | Best for | Single microservice | Platform / monolith core | Enterprise microservice |
+
+### The 4 Key Architectural Differences
+
+These are the structural decisions that determine each approach's flexibility:
+
+| Feature | A | D | B |
+|---------|---|---|---|
+| **EntityType scoping** | ❌ Global statuses | ❌ Global statuses | ✅ Per-entity-type |
+| **Dynamic transition Rules** | ❌ None | ✅ `Dictionary<string,object>` | ✅ `Dictionary<string,object>` + evaluation |
+| **DataProcessResult** | ❌ Throws exceptions | ✅ Yes | ✅ Yes + `WithMeta` chain |
+| **Transaction Metadata** | ❌ Fixed schema | ✅ Dynamic dict | ✅ Dynamic dict |
+
+B's `EntityType` field is the critical differentiator. It turns the state machine from a **single hardwired graph** into a **registry of unlimited graphs**, all managed via data. D is the pragmatic choice for a single-entity system that may grow; B is the correct choice if multi-entity or multi-tenant workflows are even remotely likely.
 
 ---
 
@@ -349,11 +403,24 @@ public async Task<DataProcessResult<TransitionOutcome>> TryTransitionAsync(
 
 Each approach shipped here solves the assignment. The extensions below are **not implemented** — they are architectural suggestions showing how the V17 patterns would scale to real-world requirements. They demonstrate **why** the pattern choices matter: what costs one line in Approach B costs a full rebuild in Approach A.
 
+> **Execution strategy:** The `agent.md` file contains ready-to-use AI prompts (for Copilot, Claude, Cursor) that implement each extension following V17 patterns. The `.ai-config/v17-skill-library.md` file serves as the "rule book" — upload it before any AI session to enforce correct patterns.
+
+### The V17 Architecture Strategy
+
+Before implementing, understand **why** each extension maps to a specific V17 skill:
+
+| Extension | V17 Skill | Architectural Principle |
+|-----------|-----------|----------------------|
+| Configurable Tasks | Skill 05 (Database Fabric) | Don't add columns — use a JSON data column |
+| Multi-Project Workflows | Skill 08 (Flow Definition) | Add a scope discriminator, not new tables |
+| Role-Based Permissions | Skill 02 (Object Processor) | Permissions are JSON rules, not `if` statements |
+| SSO / Flexible Auth | Skill 15 (API Gateway) | Auth config lives in `appsettings.json`, not in code |
+
 ### Extension 1: Configurable Tasks (JSON Data Columns)
 
 **Problem:** Different departments want different fields — Sales needs "Priority", Finance needs "DueDate", Support needs "CustomerSegment". Adding columns for each is unsustainable.
 
-**V17 Pattern:** Skill 05 (Database Fabric) — add a `Dictionary<string, object> Metadata` property stored as a JSON column via EF Core `ValueConversion`. No schema changes needed per field.
+**V17 Pattern:** Skill 05 (Database Fabric) — add a `Dictionary<string, object> Data` property stored as a JSON column via EF Core `ValueConversion`. No schema changes needed per field.
 
 ```csharp
 // Example of how the API would look after implementing this extension:
@@ -364,14 +431,16 @@ POST /transactions
 | Approach | Effort | How |
 |----------|--------|-----|
 | A | 🟡 Medium | Add JSON column + ValueConverter to Transaction entity |
-| B | 🟢 Low | `EntityType` scoping already supports diverse data shapes — add JSON column |
-| D | 🟢 Low | `Metadata` dictionary pattern already on Transaction — extend it |
+| B | ✅ Already done | `Metadata` dictionary already exists on Transaction |
+| D | ✅ Already done | `Metadata` dictionary already exists on Transaction |
+
+> **AI Prompt (from agent.md):** *"Add a `JsonDocument` property named `Data` to the Transaction entity. Configure EF Core `ValueConversion` to store as JSON string. Update the DTO to accept `Dictionary<string, object> Data`. Constraint: Do not add specific columns like 'DueDate' to the SQL table."*
 
 ### Extension 2: Multi-Project Workflows
 
 **Problem:** Project A needs "ToDo → Done" while Project B needs "Draft → Review → Publish". One workflow doesn't fit all.
 
-**V17 Pattern:** Skill 08 (Flow Definition) — add a nullable `ProjectId` foreign key to `WorkflowStatus` and `WorkflowTransition`. Project-specific transitions override global defaults.
+**V17 Pattern:** Skill 08 (Flow Definition) — add a nullable `ProjectId` foreign key to `WorkflowStatus` and `WorkflowTransition`. Project-specific transitions override global defaults. The repository implements fallback logic: look for project-specific transitions first, fall back to global if none found.
 
 ```sql
 -- Project-scoped workflow (no code changes in B)
@@ -381,28 +450,37 @@ VALUES ('task', 'DRAFT', 1, @projectBId);
 
 | Approach | Effort | How |
 |----------|--------|-----|
-| A | 🔴 High | New tables, new engine, new service |
-| B | 🟢 Low | Add `ProjectId` column + repository fallback logic |
-| D | 🟡 Medium | Add `ProjectId` + update repository queries |
+| A | 🔴 High | New tables, new engine, new service — fundamental restructuring |
+| B | 🟢 Low | Add `ProjectId` column + repository fallback logic. `EntityType` scoping already provides the foundation |
+| D | 🟡 Medium | Add `ProjectId` + update repository queries + update engine interface |
+
+> **AI Prompt (from agent.md):** *"Create a `Project` entity (Id, Name, Key). Update `WorkflowStatus` and `WorkflowTransition` to include nullable `ProjectId` FK. Update the repository: when loading transitions for Project X, look for specific transitions first; fallback to global if none found. Constraint: The WorkflowEngine interface must not change."*
 
 ### Extension 3: Role-Based Transition Permissions
 
 **Problem:** Only managers should be able to approve transitions from "Validated" to "Processing". Currently anyone can.
 
-**V17 Pattern:** Skill 02 (Object Processor) — permissions are **data, not code**. Store `{ "allowedRoles": ["Manager", "Admin"] }` in the transition's `Rules` JSON column. The generic `RuleEvaluator` checks it.
+**V17 Pattern:** Skill 02 (Object Processor) — permissions are **data, not code**. Store `{ "allowedRoles": ["Manager", "Admin"] }` in the transition's `Rules` JSON column. The generic `RuleEvaluator` checks it. The API Gateway (Skill 15) extracts user claims from the JWT token and passes them into the engine's `context` dictionary. The engine never imports auth libraries — it just reads keys from the context.
 
 ```json
 // WorkflowTransitions.Rules column:
 { "allowedRoles": ["Manager", "Admin"], "maxRetries": 3 }
 ```
 
-The API Gateway (Skill 15) extracts user claims from the JWT token and passes them into the engine's `context` dictionary. The engine never imports auth libraries.
+```csharp
+// Controller extracts claims and passes to engine — engine stays auth-free:
+var userRoles = HttpContext.User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).ToList();
+var context = new Dictionary<string, object> { ["UserRoles"] = userRoles };
+await _engine.TryTransitionAsync(statusId, target, context: context);
+```
 
 | Approach | Effort | How |
 |----------|--------|-----|
-| A | 🔴 High | Hardcoded `if (role == "Admin")` in controller — not scalable |
-| B | 🟢 Low | Add `allowedRoles` key to `EvaluateTransitionRules` — 10 lines |
-| D | 🟢 Low | Same as B — rules engine already exists |
+| A | 🔴 High | No rules engine — hardcode `if (role == "Admin")` in controller, doesn't scale |
+| B | 🟢 Low | Add `allowedRoles` key to `EvaluateTransitionRules` — ~10 lines of code |
+| D | 🟢 Low | Same as B — rules engine already exists in `EvaluateTransitionRules` |
+
+> **AI Prompt (from agent.md):** *"Permissions are defined in the database by adding `{ 'allowedRoles': ['Manager', 'Admin'] }` to WorkflowTransition.Rules JSON. Extend `EvaluateTransitionRules` to check if the context dictionary contains a `UserRoles` list and validate against the rule. In the controller, extract roles from `HttpContext.User` claims and pass via context. Do NOT hardcode roles in C#."*
 
 ### Extension 4: SSO / Flexible Authentication
 
@@ -423,16 +501,28 @@ The API Gateway (Skill 15) extracts user claims from the JWT token and passes th
 | B | 🟡 Medium | Same — auth is orthogonal to the engine |
 | D | 🟡 Medium | Same — auth is orthogonal to the engine |
 
-### Extension Summary (Estimated Effort If Implemented)
+> **AI Prompt (from agent.md):** *"Implement a Strategy Pattern for auth in `Program.cs`. Create `AuthSettings` in `appsettings.json` with Authority, ClientId, Audience. Create an `AddFlexibleAuth(configuration)` extension that reads settings and configures JwtBearer. Constraint: The Domain project must NOT depend on any Auth libraries."*
+
+### Extension Summary
 
 | Extension | V17 Skill | A | B | D |
 |-----------|-----------|---|---|---|
-| Configurable tasks (JSON fields) | Skill 05 | 🟡 Add column | ✅ Pattern ready | ✅ Pattern ready |
-| Multi-project workflows | Skill 08 | 🔴 Rebuild | 🟢 Add scope column | 🟡 Add scope column |
+| Configurable tasks (JSON fields) | Skill 05 | 🟡 Add column | ✅ Already built | ✅ Already built |
+| Multi-project workflows | Skill 08 | 🔴 Rebuild | 🟢 Add scope column | 🟡 Add scope + refactor |
 | Role-based permissions | Skill 02 | 🔴 Hardcode | 🟢 Add JSON rule key | 🟢 Add JSON rule key |
 | SSO / flexible auth | Skill 15 | 🟡 Config extension | 🟡 Config extension | 🟡 Config extension |
 
-> **Note:** The `agent.md` file contains ready-to-use AI prompts engineered to implement each extension following V17 patterns. Attach it to Copilot or Claude and paste the prompts.
+### How to Execute These Extensions
+
+1. **Prepare:** Save the `.ai-config/v17-skill-library.md` file in your repo (already included).
+2. **Context:** Start a new chat with Copilot/Claude/Cursor. Attach the library file + `CLAUDE.md`.
+3. **Execute:** Paste the prompts from `agent.md` one by one:
+   - Start with Extension 1 (Configurable Tasks) — updates the core entity
+   - Move to Extension 2 (Multi-Project) — updates the schema and scoping
+   - Implement Extension 3 (Permissions) — leverages the JSON rules
+   - Finish with Extension 4 (SSO) — secures the API
+
+> **Note:** Each extension builds on the previous. Extension 2 benefits from Extension 1's JSON column pattern. Extension 3 requires the `Rules` JSON column that B and D already have. Extension 4 is orthogonal and can be done at any point.
 
 ---
 
@@ -445,6 +535,21 @@ Each approach ships with pre-configured AI agent context files:
 | GitHub Copilot | `.github/copilot-instructions.md` | Inline suggestions following V17 patterns |
 | Claude Code | `CLAUDE.md` | Project-aware coding with architecture rules |
 | General / Any AI | `.ai-config/project-architecture.md` | Philosophy + pattern reference |
-| Skill Library | `.ai-config/v17-skill-map.md` | V17 skill → actual file mapping |
+| Skill Library | `.ai-config/v17-skill-library.md` | V17 skill → actual file mapping |
+| Extension Prompts | `agent.md` | Copy-paste prompts for implementing Extensions 1–4 |
 
 The `.ai-config/` folder contains prompt-engineered context so AI agents extend the project using the correct patterns (DataProcessResult, JSON rules, generic engines) instead of writing legacy code.
+
+### Using the Skill Library with AI Agents
+
+The `v17-skill-library.md` file acts as a rule book that enforces 5 core skills:
+
+| Skill | Rule | AI Must... |
+|-------|------|-----------|
+| **Skill 01** (Core Interfaces) | All business logic returns `DataProcessResult<T>` | Never throw exceptions for logical failures |
+| **Skill 02** (Object Processor) | Business rules are JSON configuration, not code | Use `RuleEvaluator` to parse `allowedRoles`, `minAmount`, `maxRetries` |
+| **Skill 05** (Database Fabric) | Dynamic requirements use JSON columns | Never alter schema for new field requirements |
+| **Skill 08** (Flow Definition) | Workflows are defined by data, not code | Scope by `ProjectId` or `EntityType`, not by new classes |
+| **Skill 15** (API Gateway) | API layer translates, never contains logic | Extract claims from tokens → inject into engine context |
+
+**Workflow:** Upload `v17-skill-library.md` + `CLAUDE.md` at the start of any AI session → paste prompts from `agent.md` → AI follows the rules instead of writing legacy patterns.

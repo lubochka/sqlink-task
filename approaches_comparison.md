@@ -92,5 +92,55 @@ You choose Approach B if you are building a **Platform**, not just a Service.
 | --- | --- | --- | --- |
 | **Complexity** | Low | Medium | High (Conceptually) |
 | **Flexibility** | Low | Medium (JSON Rules) | **Maximum (Multi-Tenant)** |
+| **State change cost** | 🔴 Code changes likely | 🟡 SQL for single type, code for multi | 🟢 **SQL only — always** |
 | **Code Reuse** | None | High (Patterns) | **Total (Shared Engine)** |
 | **Best For** | Single microservice | Enterprise Microservice | **Monolith / Platform Core** |
+
+---
+
+### **Flow 3: Changing State Combinations Later**
+
+This is the critical question for long-term maintainability. Here's what each approach requires for real-world state changes:
+
+#### **Scenario 1: Add "ON_HOLD" Between PROCESSING → COMPLETED**
+
+| Step | **Approach A** | **Approach D** | **Approach B** |
+| --- | --- | --- | --- |
+| **Add status** | `INSERT INTO WorkflowStatuses ...` | Same as A | Same + `EntityType = 'transaction'` |
+| **Add transitions** | `INSERT INTO WorkflowTransitions` × 2 | Same + optional `Rules` JSON | Same + `EntityType` column |
+| **Code changes** | None | None | None |
+| **Verdict** | ✅ All three handle this equally | ✅ | ✅ |
+
+#### **Scenario 2: Add "Orders" Workflow (PENDING → CONFIRMED → SHIPPED → DELIVERED)**
+
+| Step | **Approach A** | **Approach D** | **Approach B** |
+| --- | --- | --- | --- |
+| **Status table** | 🔴 Globally unique names — collisions | 🔴 Same problem | 🟢 `EntityType = 'order'` — independent |
+| **Engine** | 🔴 New `OrderWorkflowEngine` | 🔴 Add `EntityType`, refactor — rewrite into B | 🟢 **Same engine, zero changes** |
+| **Service layer** | 🔴 New service + controller | 🔴 New adapter service | 🟢 Thin adapter only |
+| **Total effort** | 🔴 Full feature build | 🔴 Schema migration + engine refactor | 🟢 **SQL INSERT only** |
+
+#### **Scenario 3: Same Entity, Different Workflow Per Tenant**
+
+| Step | **Approach A** | **Approach D** | **Approach B** |
+| --- | --- | --- | --- |
+| **Feasibility** | 🔴 Impossible | 🔴 Impossible — no scope dimension | 🟢 Composite key: `"transaction-clientA"` vs `"transaction-clientB"` |
+| **Code changes** | N/A | N/A | **Zero** — engine accepts any string |
+
+#### **Scenario 4: Add Role-Based Permission to a Transition**
+
+| Step | **Approach A** | **Approach D** | **Approach B** |
+| --- | --- | --- | --- |
+| **Store rule** | 🔴 No `Rules` column | 🟢 `{"allowedRoles":["Manager"]}` in Rules JSON | 🟢 Same as D |
+| **Evaluate rule** | 🔴 Hardcode `if (role == "Admin")` | 🟢 ~10 lines in `EvaluateTransitionRules` | 🟢 Same as D |
+
+### **The 4 Key Architectural Differences**
+
+| Feature | **A** | **D** | **B** |
+| --- | --- | --- | --- |
+| **EntityType scoping** | ❌ Global statuses | ❌ Global statuses | ✅ Per-entity-type isolation |
+| **Dynamic transition Rules** | ❌ None | ✅ `Dictionary<string,object>` JSON | ✅ JSON + runtime evaluation |
+| **DataProcessResult** | ❌ Domain exceptions | ✅ Structured results | ✅ Structured + `.WithMeta()` |
+| **Transaction Metadata** | ❌ Fixed schema | ✅ `Metadata` JSON column | ✅ `Metadata` JSON column |
+
+**B's `EntityType` field is the critical differentiator.** It turns the state machine from a single hardwired graph into a registry of unlimited graphs, all managed via data. D is the pragmatic choice for a single-entity system; B is the correct choice if multi-entity or multi-tenant workflows are on the horizon.

@@ -38,15 +38,18 @@ I've identified **4 distinct approaches** to solve this assignment, ranging from
 
 ---
 
-### Approach B: "DNA-Infused Clean Architecture" (V17 Philosophy, Traditional Tech)
+### Approach B: "DNA-Infused Clean Architecture" (V17 Philosophy, Traditional Tech) ⭐ Most Flexible
 
 **What it is:** Build with the assignment's required tech (SQL Server, EF Core), but infuse V17's **Freedom Machine philosophy** into the design. The workflow engine becomes a *generic state machine* — not just for transactions, but for ANY entity type. You demonstrate architectural thinking that goes beyond the requirements.
+
+**Why B is easiest to change state combinations later:** The `EntityType` field on `WorkflowStatus` and `WorkflowTransition` turns the state machine from a single hardwired graph into a **registry of unlimited graphs**. Adding a new entity type (orders, tickets), rewiring transitions per tenant, or running completely different workflows per project — all SQL only, zero code changes.
 
 **Key V17 patterns applied:**
 - **FREEDOM principle:** Statuses, transitions, AND the entity types they apply to are all dynamic
 - **DNA-1 (Dynamic Documents):** Workflow configuration stored as flexible JSON in SQL, not rigid FK tables
 - **DNA-6 (Generic Interfaces):** Repository pattern that could swap SQL Server for Elasticsearch without changing the workflow engine
 - **DataProcessResult<T>:** Consistent success/failure returns (no exceptions for business logic)
+- **EntityType scoping:** Composite unique index `(EntityType, Name)` enables independent workflow graphs per entity type
 
 **Phases:**
 1. Solution setup + generic repository interfaces (inspired by IDatabaseService)
@@ -424,6 +427,9 @@ When actually building Approach D, reference these V17 files in this order:
 |---|---|---|---|---|
 | Meets requirements | ✅ | ✅ | ❌ (different tech) | ✅ |
 | Shows senior thinking | ❌ | ✅ | ✅ | ✅ |
+| State change flexibility | 🔴 Low — code changes | 🟢 **Maximum — SQL only** | 🟢 Maximum | 🟡 Medium — single scope |
+| Multi-entity / multi-tenant | ❌ | ✅ **EntityType scoping** | ✅ | ❌ |
+| Dynamic transition rules | ❌ | ✅ JSON Rules + evaluator | ✅ | ✅ JSON Rules + evaluator |
 | Time to complete | 4-5h | 5-7h | 8-12h | 6-8h |
 | Risk of "over-engineering" | None | Low | High | Low |
 | Memorable to evaluator | No | Yes | Yes (wrong way) | Yes (right way) |
@@ -431,3 +437,5 @@ When actually building Approach D, reference these V17 files in this order:
 | V17 patterns demonstrated | 0 | 3-4 | All | 4-5 (subtle) |
 
 **Approach D delivers:** A clean, standard .NET project that any evaluator expects, with a hidden V17-inspired architecture that elevates it from "competent" to "impressive" — without triggering the "over-engineered" red flag.
+
+**Approach B delivers:** Maximum long-term flexibility. If changing state combinations, adding entity types, or supporting per-tenant workflows are even remotely on the roadmap, B's `EntityType` scoping makes these changes cost SQL INSERT instead of code refactors. The tradeoff is slightly higher conceptual complexity upfront.
