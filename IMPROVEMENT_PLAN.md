@@ -1,86 +1,81 @@
-# Transaction Workflow Engine — Improvement Plan
+# Transaction Workflow Engine — Improvement Plan V2
 
 ## No-Code Explanation
 
-We have 3 implementations of a Transaction Workflow Engine (a backend that moves transactions through statuses like CREATED → VALIDATED → PROCESSING → COMPLETED).
+After the initial 4 phases of improvements (Docker healthchecks, FluentValidation, ProblemDetails, Mermaid visualization, README updates), a deeper code review reveals these remaining issues:
 
-**Approach A** (Vanilla): Uses exceptions for error handling, simple structure, no multi-tenant support.
-**Approach B** (Multi-Tenant DNA): Uses `DataProcessResult` pattern, supports multiple entity types via `EntityType` discriminator, stores JSON rules.
-**Approach D** (Strategic Hybrid): Uses `DataProcessResult` like B but without multi-tenant, includes JSON metadata, balances simplicity with power.
+**Approach D has a design flaw**: The WorkflowEngine (supposed to be generic) directly depends on ITransactionRepository to count retries. This violates the "engine doesn't know what a Transaction is" principle. The fix: pass the retry count FROM the service layer (like Approach B already does correctly).
 
-An expert review identified specific improvements needed across all three. We will apply them systematically.
+**Approaches B & D lack a safety net**: If an unexpected exception happens (database crash, network issue), there's no middleware to catch it. Approach A has one, B/D don't. Unhandled exceptions would return ugly 500 errors.
+
+**Approach A uses a non-standard error format**: While B/D use RFC 7807 ProblemDetails (industry standard), Approach A returns a custom `ErrorResponse` object. This is inconsistent and less professional.
+
+**All approaches are missing a health check endpoint**: The README references `/health` but it doesn't exist. This is critical for Docker, Kubernetes, and load balancers.
+
+**All approaches leak secrets in appsettings.json**: Even though docker-compose uses `.env`, the appsettings.json still has the hardcoded password.
+
+**Infrastructure references Application**: The dependency direction is wrong — Infrastructure should only reference Domain.
 
 ---
 
-## Requirements from Analysis Document
+## Requirements
 
 | # | Requirement | Applies To | Category |
 |---|-------------|-----------|----------|
-| R1 | Docker healthcheck — API waits for DB readiness | A, B, D | DevOps |
-| R2 | Start script (start.sh) for one-command launch | A, B, D | DevOps |
-| R3 | Secret management — env vars instead of hardcoded passwords | A, B, D | Security |
-| R4 | Input validation with FluentValidation | A, B, D | Security |
-| R5 | Concurrency: explicit DbUpdateConcurrencyException handling | A (repos already handle, but engine needs it) | Security |
-| R6 | RFC 7807 ProblemDetails error format | B, D (ResultMapper) | API Quality |
-| R7 | Workflow visualization endpoint (Mermaid export) | A, B, D | Feature |
-| R8 | Fix compilation bug: duplicate `var history` in B's TransactionService | B | Bug Fix |
-| R9 | Updated README with new features documented | A, B, D | Documentation |
+| R1 | Fix D's WorkflowEngine to not depend on ITransactionRepository | D | Architecture |
+| R2 | Add global exception handler middleware to B and D | B, D | Resilience |
+| R3 | Upgrade A's ExceptionHandler to use ProblemDetails | A | API Standards |
+| R4 | Add /health endpoint with DB connectivity check | A, B, D | DevOps |
+| R5 | Remove hardcoded password from appsettings.json | A, B, D | Security |
+| R6 | Add .env.example for onboarding | A, B, D | DX |
+| R7 | Fix Infrastructure→Application dependency direction | A, B, D | Architecture |
 
 ---
 
 ## Validation: Plan vs Requirements
 
-- [x] R1: Phase 1 — docker-compose.yml with healthcheck for all 3
-- [x] R2: Phase 1 — start.sh for all 3
-- [x] R3: Phase 1 — .env file + env var references in docker-compose
-- [x] R4: Phase 2 — FluentValidation validators + Program.cs registration
-- [x] R5: Phase 2 — Approach A already handles in repo; verify
-- [x] R6: Phase 3 — ProblemDetails in ResultMapper for B, D
-- [x] R7: Phase 3 — Admin/workflow/visualize endpoint for all 3
-- [x] R8: Phase 2 — Fix B's duplicate variable
-- [x] R9: Phase 4 — Update READMEs
+- [x] R1: Phase 1 — Refactor D's engine + service + tests
+- [x] R2: Phase 2 — Add GlobalExceptionMiddleware to B, D
+- [x] R3: Phase 2 — Refactor A's middleware to ProblemDetails
+- [x] R4: Phase 2 — HealthCheck registration + endpoint for all 3
+- [x] R5: Phase 3 — Replace passwords with env var placeholders
+- [x] R6: Phase 3 — Create .env.example for all 3
+- [x] R7: Phase 3 — Fix csproj dependency direction
 
 ---
 
-## Positive Examples (Expected After Improvements)
+## Positive Examples (Expected After)
 
-### Docker Start (R1+R2+R3)
-```bash
-# User runs ONE command:
-$ ./start.sh
-🚀 Starting Transaction Engine...
-✅ Systems GO! API running at http://localhost:5000/swagger
+### D's Engine — Clean Generic Interface (R1)
+```csharp
+// BEFORE: Engine knows about transactions (BAD)
+public WorkflowEngine(IWorkflowRepository workflowRepo, ITransactionRepository transactionRepo)
 
-# SQL Server is fully ready before API starts (healthcheck)
-# Password comes from .env file, never hardcoded
+// AFTER: Engine is purely generic (GOOD)
+public WorkflowEngine(IWorkflowRepository workflowRepo)
+// priorTransitionCount passed from TransactionService like B does
 ```
 
-### Input Validation (R4)
+### B/D Global Exception Safety (R2)
 ```
-POST /transactions
-{ "amount": -50, "currency": "usd1", "description": "<script>alert('xss')</script>" }
-
-→ 400 Bad Request
+// An unexpected SqlException occurs:
+→ 500 Internal Server Error
 {
-  "type": "https://httpstatuses.io/400",
-  "title": "Validation Error",
-  "status": 400,
-  "errors": {
-    "Amount": ["Amount must be greater than 0."],
-    "Currency": ["Currency must be a 3-letter uppercase ISO code."]
-  }
+  "type": "https://httpstatuses.io/500",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "An unexpected error occurred."
 }
+// NOT: a raw stack trace or empty response
 ```
 
-### ProblemDetails Error (R6)
+### A's ProblemDetails Upgrade (R3)
 ```
-POST /transactions/1/transition
-{ "targetStatus": "COMPLETED" }
-
+POST /transactions/1/transition  {"targetStatus":"COMPLETED"}
 → 400 Bad Request
 {
   "type": "https://httpstatuses.io/400",
-  "title": "ValidationError",
+  "title": "InvalidTransition",
   "status": 400,
   "detail": "Transition from 'CREATED' to 'COMPLETED' is not allowed.",
   "allowedTransitions": ["VALIDATED"],
@@ -88,69 +83,51 @@ POST /transactions/1/transition
 }
 ```
 
-### Workflow Visualization (R7)
+### Health Check (R4)
 ```
-GET /admin/workflow/visualize
-
-→ 200 OK (text/plain)
-graph TD
-    CREATED -->|Validate transaction| VALIDATED
-    VALIDATED -->|Begin processing| PROCESSING
-    PROCESSING -->|Complete transaction| COMPLETED
-    PROCESSING -->|Processing failed| FAILED
-    FAILED -->|Retry after failure| VALIDATED
+GET /health → 200 OK  "Healthy"
+GET /health → 503 Service Unavailable  "Unhealthy" (if DB is down)
 ```
 
 ## Negative Examples (What We DON'T Want)
 
-### Bad: API crashes on startup (race condition)
-```
-api_1  | Unhandled exception. Microsoft.Data.SqlClient.SqlException: 
-api_1  |   Cannot open database "TransactionWorkflow" requested by the login.
-```
-
-### Bad: Hardcoded secrets in docker-compose
-```yaml
-SA_PASSWORD=YourStrong!Passw0rd  # ← This gets committed to git
+### BAD: Engine depends on specific entity repo
+```csharp
+// D's WorkflowEngine calling:
+await _transactionRepo.GetTransitionCountAsync(transactionId, ...)
+// This means you can't reuse the engine for "orders" without changing it
 ```
 
-### Bad: No validation allows garbage input
+### BAD: Unhandled exception in B/D
 ```
-POST /transactions
-{ "amount": 0, "currency": "" }
-→ 201 Created  # ← Should be 400!
+// Database timeout → raw 500 with no structure
+HTTP/1.1 500 Internal Server Error
+Content-Length: 0
 ```
 
-### Bad: Generic 500 error instead of structured response
-```
-→ 500 Internal Server Error
-{ "error": "Internal server error" }
-# Instead of a clear ProblemDetails response
+### BAD: Hardcoded password in committed file
+```json
+"DefaultConnection": "...Password=YourStrong!Passw0rd..."
 ```
 
 ---
 
 ## Phases
 
-### Phase 1: DevOps & Security Foundation (docker-compose, start.sh, .env)
-**Scope**: R1, R2, R3 — All approaches
-**Files changed**: docker-compose.yml, new .env, new start.sh
-**Recovery**: Self-contained, no code dependencies
+### Phase 1: D's Engine Purity Fix (R1)
+**Scope**: Remove ITransactionRepository from D's WorkflowEngine, pass count from service
+**Files changed**: D: WorkflowEngine.cs, IWorkflowEngine.cs, TransactionService.cs, IRepositories.cs, WorkflowEngineTests.cs
+**Recovery**: Self-contained in D only
 
-### Phase 2: Input Validation + Bug Fixes
-**Scope**: R4, R5, R8 — All approaches
-**Files changed**: DTOs.cs (add validators), Program.cs (register FluentValidation), csproj (add package ref), B's TransactionService.cs (fix bug)
-**Recovery**: Phase 1 not required, independent
+### Phase 2: API Resilience (R2, R3, R4)
+**Scope**: Global exception middleware for B/D, ProblemDetails for A, health checks for all
+**Files changed**: B+D: new GlobalExceptionMiddleware.cs + Program.cs, A: ExceptionHandlerMiddleware.cs + Program.cs, All: Program.cs (health checks)
+**Recovery**: Independent per approach
 
-### Phase 3: API Quality — ProblemDetails + Visualization Endpoint  
-**Scope**: R6, R7 — ResultMapper for B/D, new admin endpoint for all
-**Files changed**: ResultMapper.cs, AdminController.cs, IServices + AdminService
-**Recovery**: Phase 1-2 not required, independent
-
-### Phase 4: Documentation Updates
-**Scope**: R9 — All approaches
-**Files changed**: README.md for each approach
-**Recovery**: Can be done anytime
+### Phase 3: Config & Dependencies (R5, R6, R7)
+**Scope**: Security + DX + clean dependency graph
+**Files changed**: All: appsettings.json, new .env.example, Infrastructure.csproj
+**Recovery**: Zero code impact, config only
 
 ---
 
@@ -158,7 +135,6 @@ POST /transactions
 
 | Phase | Status | Checkpoint |
 |-------|--------|------------|
-| Phase 1 | NOT_STARTED | |
+| Phase 1 | ✅ DONE | D: WorkflowEngine, IWorkflowEngine, TransactionService, Tests — all updated |
 | Phase 2 | NOT_STARTED | |
 | Phase 3 | NOT_STARTED | |
-| Phase 4 | NOT_STARTED | |
