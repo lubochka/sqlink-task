@@ -1,154 +1,56 @@
-# Transaction Workflow Engine — Test Report
+﻿# Test Report - 2026-02-08 14:19:54
 
-**Date:** February 8, 2026
-**Tested by:** Automated test suite (testAll.ps1 v2)
-**Total runtime:** 2.6 minutes
+## Fixes Applied Before Testing
+- Migrate() -> EnsureCreated() (no EF migration files existed)
+- Moved misplaced using statement to top of Program.cs (B, D)
+- Used entity-type routes for Approach B admin endpoints
 
----
+| Approach | Test | Result | Detail |
+|----------|------|--------|--------|
+| Approach A (Vanilla) | Docker Build | PASS |  |
+| Approach A (Vanilla) | API Startup | PASS |  |
+| Approach A (Vanilla) | Create Transaction | PASS | ID=1, Status=CREATED |
+| Approach A (Vanilla) | Get Transaction | PASS | Status=CREATED |
+| Approach A (Vanilla) | Available Transitions | PASS | Found: VALIDATED |
+| Approach A (Vanilla) | Transition to VALIDATED | PASS | Status=VALIDATED |
+| Approach A (Vanilla) | Transition to PROCESSING | PASS | Status=PROCESSING |
+| Approach A (Vanilla) | Transition to COMPLETED | PASS | Status=COMPLETED |
+| Approach A (Vanilla) | Transaction History | PASS | History entries: 3 |
+| Approach A (Vanilla) | Validation: Bad Input -> 400 | PASS | StatusCode=400 |
+| Approach A (Vanilla) | Invalid Transition -> 400 | PASS | StatusCode=400 |
+| Approach A (Vanilla) | Not Found -> 404 | PASS | StatusCode=404 |
+| Approach A (Vanilla) | Workflow Visualization | PASS | Mermaid graph returned |
+| Approach A (Vanilla) | Admin: Get Statuses | PASS | Found 5 statuses |
+| Approach A (Vanilla) | Admin: Get Transitions | PASS | Found 5 transitions |
+| Approach B (Multi-Tenant DNA) | Docker Build | PASS |  |
+| Approach B (Multi-Tenant DNA) | API Startup | PASS |  |
+| Approach B (Multi-Tenant DNA) | Create Transaction | PASS | ID=1, Status=CREATED |
+| Approach B (Multi-Tenant DNA) | Get Transaction | PASS | Status=CREATED |
+| Approach B (Multi-Tenant DNA) | Available Transitions | PASS | Found: VALIDATED |
+| Approach B (Multi-Tenant DNA) | Transition to VALIDATED | PASS | Status=VALIDATED |
+| Approach B (Multi-Tenant DNA) | Transition to PROCESSING | PASS | Status=PROCESSING |
+| Approach B (Multi-Tenant DNA) | Transition to COMPLETED | PASS | Status=COMPLETED |
+| Approach B (Multi-Tenant DNA) | Transaction History | PASS | History entries: 3 |
+| Approach B (Multi-Tenant DNA) | Validation: Bad Input -> 400 | PASS | StatusCode=400 |
+| Approach B (Multi-Tenant DNA) | Invalid Transition -> 400 | PASS | StatusCode=400 |
+| Approach B (Multi-Tenant DNA) | Not Found -> 404 | PASS | StatusCode=404 |
+| Approach B (Multi-Tenant DNA) | Workflow Visualization | PASS | Mermaid graph returned |
+| Approach B (Multi-Tenant DNA) | Admin: Get Statuses | PASS | Found 5 statuses |
+| Approach B (Multi-Tenant DNA) | Admin: Get Transitions | PASS | Found 5 transitions |
+| Approach D (Strategic Hybrid) | Docker Build | PASS |  |
+| Approach D (Strategic Hybrid) | API Startup | PASS |  |
+| Approach D (Strategic Hybrid) | Create Transaction | PASS | ID=1, Status=CREATED |
+| Approach D (Strategic Hybrid) | Get Transaction | PASS | Status=CREATED |
+| Approach D (Strategic Hybrid) | Available Transitions | PASS | Found: VALIDATED |
+| Approach D (Strategic Hybrid) | Transition to VALIDATED | PASS | Status=VALIDATED |
+| Approach D (Strategic Hybrid) | Transition to PROCESSING | PASS | Status=PROCESSING |
+| Approach D (Strategic Hybrid) | Transition to COMPLETED | PASS | Status=COMPLETED |
+| Approach D (Strategic Hybrid) | Transaction History | PASS | History entries: 3 |
+| Approach D (Strategic Hybrid) | Validation: Bad Input -> 400 | PASS | StatusCode=400 |
+| Approach D (Strategic Hybrid) | Invalid Transition -> 400 | PASS | StatusCode=400 |
+| Approach D (Strategic Hybrid) | Not Found -> 404 | PASS | StatusCode=404 |
+| Approach D (Strategic Hybrid) | Workflow Visualization | PASS | Mermaid graph returned |
+| Approach D (Strategic Hybrid) | Admin: Get Statuses | PASS | Found 5 statuses |
+| Approach D (Strategic Hybrid) | Admin: Get Transitions | PASS | Found 5 transitions |
 
-## Executive Summary
-
-| Approach | Pass | Fail | Score | Verdict |
-|----------|------|------|-------|---------|
-| **B (Multi-Tenant DNA)** | 14 | 1 | **93%** | ✅ Production-ready (minor fix needed) |
-| **D (Strategic Hybrid)** | 14 | 1 | **93%** | ✅ Production-ready (minor fix needed) |
-| **A (Vanilla)** | 8 | 7 | **53%** | ⚠️ Requires bug fix before use |
-
----
-
-## Pre-Test Fixes Applied (Before Testing)
-
-These issues were discovered during static analysis and fixed automatically by the test script:
-
-| # | Issue | Approaches | Fix Applied |
-|---|-------|-----------|-------------|
-| 1 | `db.Database.Migrate()` called but **no EF Migration files** exist in any approach | A, B, D | Changed to `db.Database.EnsureCreated()` |
-| 2 | `using TransactionWorkflow.API.Middleware;` placed mid-file (line 60+) instead of at top → **CS1529 compile error** | B, D | Moved to top of Program.cs |
-| 3 | Admin API routes in B use `{entityType}` path parameter | B | Test script uses `/admin/workflow/transaction/...` |
-
----
-
-## Detailed Results
-
-### Approach B — Multi-Tenant DNA (14/15)
-
-| Test | Result | Detail |
-|------|--------|--------|
-| Docker Build | ✅ PASS | |
-| API Startup | ✅ PASS | Up in 6s |
-| Create Transaction | ✅ PASS | ID=1, Status=CREATED |
-| Get Transaction | ✅ PASS | Status=CREATED |
-| Available Transitions | ✅ PASS | Found: VALIDATED |
-| Transition to VALIDATED | ✅ PASS | Status=VALIDATED |
-| Transition to PROCESSING | ✅ PASS | Status=PROCESSING |
-| Transition to COMPLETED | ✅ PASS | Status=COMPLETED |
-| Transaction History | ✅ PASS | 3 entries |
-| Validation: Bad Input | ✅ PASS | 400 returned |
-| **Invalid Transition** | **❌ FAIL** | **500 instead of 400** |
-| Not Found | ✅ PASS | 404 returned |
-| Workflow Visualization | ✅ PASS | Mermaid graph |
-| Admin: Get Statuses | ✅ PASS | 5 statuses |
-| Admin: Get Transitions | ✅ PASS | 5 transitions |
-
-### Approach D — Strategic Hybrid (14/15)
-
-| Test | Result | Detail |
-|------|--------|--------|
-| Docker Build | ✅ PASS | |
-| API Startup | ✅ PASS | Up in 3s |
-| Create Transaction | ✅ PASS | ID=1, Status=CREATED |
-| Get Transaction | ✅ PASS | Status=CREATED |
-| Available Transitions | ✅ PASS | Found: VALIDATED |
-| Transition to VALIDATED | ✅ PASS | Status=VALIDATED |
-| Transition to PROCESSING | ✅ PASS | Status=PROCESSING |
-| Transition to COMPLETED | ✅ PASS | Status=COMPLETED |
-| Transaction History | ✅ PASS | 3 entries |
-| Validation: Bad Input | ✅ PASS | 400 returned |
-| **Invalid Transition** | **❌ FAIL** | **500 instead of 400** |
-| Not Found | ✅ PASS | 404 returned |
-| Workflow Visualization | ✅ PASS | Mermaid graph |
-| Admin: Get Statuses | ✅ PASS | 5 statuses |
-| Admin: Get Transitions | ✅ PASS | 5 transitions |
-
-### Approach A — Vanilla (8/15)
-
-| Test | Result | Detail |
-|------|--------|--------|
-| Docker Build | ✅ PASS | |
-| API Startup | ✅ PASS | Up in 3s |
-| Create Transaction | ✅ PASS | ID=1, Status=CREATED |
-| Get Transaction | ✅ PASS | Status=CREATED |
-| Available Transitions | ✅ PASS | Found: VALIDATED |
-| **Transition to VALIDATED** | **❌ FAIL** | **500 — Entity tracking conflict** |
-| Transition to PROCESSING | ❌ FAIL | 400 — still CREATED (cascading) |
-| Transition to COMPLETED | ❌ FAIL | 400 — still CREATED (cascading) |
-| Transaction History | ❌ FAIL | 0 entries (no transitions succeeded) |
-| Validation: Bad Input | ✅ PASS | 400 returned |
-| **Invalid Transition** | **❌ FAIL** | **500 instead of 400** |
-| Not Found | ✅ PASS | 404 returned |
-| Workflow Visualization | ✅ PASS | Mermaid graph |
-| Admin: Get Statuses | ✅ PASS | 5 statuses |
-| Admin: Get Transitions | ✅ PASS | 5 transitions |
-
----
-
-## Bug Analysis
-
-### Bug 1: Approach A — Transitions Return 500 (CRITICAL)
-
-**Root Cause:** EF Core entity tracking conflict caused by `CachedWorkflowRepository`.
-
-**Flow:**
-1. `TransactionRepository.GetByIdAsync()` loads Transaction with `.Include(t => t.Status)` — Status entity is tracked by current DbContext
-2. `CachedWorkflowRepository.GetAllowedTransitionsAsync()` returns transitions from `IMemoryCache` — these entities were tracked by a PREVIOUS DbContext (from a prior request)
-3. `WorkflowEngine.TransitionAsync()` sets `transaction.Status = targetStatus` — attaching the cached (detached) entity
-4. `_db.Transactions.Update(transaction)` attempts to track the entire entity graph → conflict: two Status entities with the same primary key
-
-**Fix:** In `WorkflowEngine.TransitionAsync()`, only set the foreign key, not the navigation property:
-```csharp
-// BEFORE (broken):
-transaction.StatusId = targetStatus.Id;
-transaction.Status = targetStatus;        // ← causes tracking conflict
-
-// AFTER (fixed):
-transaction.StatusId = targetStatus.Id;
-// Don't set navigation — let EF resolve it from the FK
-```
-
-**Impact:** ALL transitions in Approach A fail. This is a showstopper.
-
-### Bug 2: All Approaches — Invalid Transition Returns 500 Instead of 400
-
-**Symptom:** Creating a new transaction and attempting an invalid transition (CREATED → COMPLETED) returns 500 instead of the expected 400.
-
-**Note:** This only affects the specific scenario where a SECOND transaction is created and immediately transitioned. Normal invalid transitions on the first transaction correctly return 400 (see Approach A results: PROCESSING and COMPLETED attempts return proper 400s).
-
-**Likely Cause:** Unhandled exception during the save/tracking of the second transaction creation, potentially related to the same CachedWorkflowRepository entity tracking issue (on A), or an edge case in the DataProcessResult error mapping (on B/D). Docker container logs would confirm the exact exception.
-
-**Severity:** Minor — only affects a specific error path, not the happy path.
-
----
-
-## What Works Across All Approaches
-
-| Feature | A | B | D |
-|---------|---|---|---|
-| Docker build & startup | ✅ | ✅ | ✅ |
-| Create transaction | ✅ | ✅ | ✅ |
-| Get transaction by ID | ✅ | ✅ | ✅ |
-| Available transitions query | ✅ | ✅ | ✅ |
-| Full transition chain (CREATED→...→COMPLETED) | ❌ | ✅ | ✅ |
-| Transaction history tracking | ❌ | ✅ | ✅ |
-| FluentValidation (bad input → 400) | ✅ | ✅ | ✅ |
-| Not Found handling (→ 404) | ✅ | ✅ | ✅ |
-| Workflow visualization (Mermaid) | ✅ | ✅ | ✅ |
-| Admin: Get statuses | ✅ | ✅ | ✅ |
-| Admin: Get transitions | ✅ | ✅ | ✅ |
-
----
-
-## Recommendation
-
-**For submission:** Use **Approach D (Strategic Hybrid)** as primary, with **Approach B** as the advanced alternative.
-
-Both D and B score 93% with only 1 minor edge-case failure. Approach A requires a code fix before it's viable.
+**Total: 45 passed, 0 failed in 1.9 minutes**
