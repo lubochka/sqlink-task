@@ -1,0 +1,38 @@
+graph TD
+    subgraph "Phase 1: DevOps & Security Foundation"
+        P1A["🐳 docker-compose.yml<br/>Add DB healthcheck"]
+        P1B["🔐 .env file<br/>Extract secrets"]
+        P1C["🚀 start.sh<br/>One-command launch"]
+    end
+
+    subgraph "Phase 2: Input Validation + Bug Fixes"
+        P2A["✅ FluentValidation<br/>Amount > 0, Currency 3-char"]
+        P2B["🐛 Fix B's duplicate<br/>var history bug"]
+        P2C["🔒 Register validators<br/>in Program.cs"]
+    end
+
+    subgraph "Phase 3: API Quality"
+        P3A["📋 RFC 7807<br/>ProblemDetails errors"]
+        P3B["📊 Mermaid endpoint<br/>GET /admin/workflow/visualize"]
+    end
+
+    subgraph "Phase 4: Documentation"
+        P4A["📝 Update README.md<br/>New features & examples"]
+    end
+
+    P1A --> P1B --> P1C
+    P2A --> P2B --> P2C
+    P3A --> P3B
+    P1C -.->|Independent| P2A
+    P2C -.->|Independent| P3A
+    P3B -.->|Independent| P4A
+
+    style P1A fill:#2563eb,color:#fff
+    style P1B fill:#2563eb,color:#fff
+    style P1C fill:#2563eb,color:#fff
+    style P2A fill:#16a34a,color:#fff
+    style P2B fill:#dc2626,color:#fff
+    style P2C fill:#16a34a,color:#fff
+    style P3A fill:#9333ea,color:#fff
+    style P3B fill:#9333ea,color:#fff
+    style P4A fill:#ea580c,color:#fff
