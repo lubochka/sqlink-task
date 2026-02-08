@@ -1,38 +1,105 @@
 graph TD
-    subgraph "Phase 1: DevOps & Security Foundation"
-        P1A["🐳 docker-compose.yml<br/>Add DB healthcheck"]
+    subgraph "Phase 1: DevOps Foundation"
+        P1A["🐳 docker-compose.yml<br/>DB healthcheck"]
         P1B["🔐 .env file<br/>Extract secrets"]
         P1C["🚀 start.sh<br/>One-command launch"]
     end
 
-    subgraph "Phase 2: Input Validation + Bug Fixes"
+    subgraph "Phase 2: Input Validation"
         P2A["✅ FluentValidation<br/>Amount > 0, Currency 3-char"]
-        P2B["🐛 Fix B's duplicate<br/>var history bug"]
-        P2C["🔒 Register validators<br/>in Program.cs"]
+        P2B["🐛 Fix B duplicate var bug"]
     end
 
     subgraph "Phase 3: API Quality"
-        P3A["📋 RFC 7807<br/>ProblemDetails errors"]
-        P3B["📊 Mermaid endpoint<br/>GET /admin/workflow/visualize"]
+        P3A["📋 RFC 7807 ProblemDetails"]
+        P3B["📊 Mermaid visualization"]
     end
 
     subgraph "Phase 4: Documentation"
-        P4A["📝 Update README.md<br/>New features & examples"]
+        P4A["📝 V17-mapped READMEs"]
     end
 
-    P1A --> P1B --> P1C
-    P2A --> P2B --> P2C
-    P3A --> P3B
-    P1C -.->|Independent| P2A
-    P2C -.->|Independent| P3A
-    P3B -.->|Independent| P4A
+    subgraph "Phase 5: Engine Purity"
+        P5A["🏗️ D: Remove ITransactionRepo<br/>from WorkflowEngine"]
+        P5B["🔄 D: Pass priorTransitionCount<br/>from service layer"]
+    end
+
+    subgraph "Phase 6: API Resilience"
+        P6A["🛡️ B,D: GlobalExceptionMiddleware"]
+        P6B["📋 A: ProblemDetails upgrade"]
+        P6C["💓 All: /health endpoint"]
+    end
+
+    subgraph "Phase 7: Config Cleanup"
+        P7A["🔐 Remove hardcoded passwords"]
+        P7B["📄 .env.example for onboarding"]
+        P7C["📦 Fix Infrastructure csproj deps"]
+    end
+
+    subgraph "Phase 8: V17 Integration"
+        P8A["🤖 AI configs<br/>Copilot + Claude Code"]
+        P8B["🗺️ Skill maps + architecture docs"]
+    end
+
+    subgraph "Phase 9: Bug Fixes"
+        P9A["🔍 AsNoTracking<br/>on cached queries"]
+        P9B["🔗 FK-only navigation<br/>assignment"]
+        P9C["♻️ Entity reload<br/>after mutation"]
+    end
+
+    subgraph "Phase 10: Security Hardening"
+        P10A["🔑 API Key Auth<br/>+ dev-bypass"]
+        P10B["🛡️ Authorize + AdminOnly"]
+        P10C["🌐 CORS configuration"]
+        P10D["🔒 Env-aware exceptions"]
+        P10E["📖 XML docs in Swagger"]
+    end
+
+    subgraph "Phase 11: Reviewer Fixes"
+        P11A["📝 Concurrency docs"]
+        P11B["🔁 Idempotency docs"]
+        P11C["🛡️ Rule safety docs"]
+        P11D["🔧 Workflow diagram fix"]
+    end
+
+    P1C -.-> P2A
+    P2B -.-> P3A
+    P3B -.-> P4A
+    P4A -.-> P5A
+    P5B -.-> P6A
+    P6C -.-> P7A
+    P7C -.-> P8A
+    P8B -.-> P9A
+    P9C -.-> P10A
+    P10E -.-> P11A
 
     style P1A fill:#2563eb,color:#fff
     style P1B fill:#2563eb,color:#fff
     style P1C fill:#2563eb,color:#fff
     style P2A fill:#16a34a,color:#fff
     style P2B fill:#dc2626,color:#fff
-    style P2C fill:#16a34a,color:#fff
     style P3A fill:#9333ea,color:#fff
     style P3B fill:#9333ea,color:#fff
     style P4A fill:#ea580c,color:#fff
+    style P5A fill:#0891b2,color:#fff
+    style P5B fill:#0891b2,color:#fff
+    style P6A fill:#4f46e5,color:#fff
+    style P6B fill:#4f46e5,color:#fff
+    style P6C fill:#4f46e5,color:#fff
+    style P7A fill:#b91c1c,color:#fff
+    style P7B fill:#b91c1c,color:#fff
+    style P7C fill:#b91c1c,color:#fff
+    style P8A fill:#7c3aed,color:#fff
+    style P8B fill:#7c3aed,color:#fff
+    style P9A fill:#dc2626,color:#fff
+    style P9B fill:#dc2626,color:#fff
+    style P9C fill:#dc2626,color:#fff
+    style P10A fill:#059669,color:#fff
+    style P10B fill:#059669,color:#fff
+    style P10C fill:#059669,color:#fff
+    style P10D fill:#059669,color:#fff
+    style P10E fill:#059669,color:#fff
+    style P11A fill:#d97706,color:#fff
+    style P11B fill:#d97706,color:#fff
+    style P11C fill:#d97706,color:#fff
+    style P11D fill:#d97706,color:#fff
