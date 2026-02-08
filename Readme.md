@@ -12,13 +12,14 @@ sqlink-task/
 ├── TransactionWorkflow_ApproachB.zip    # DNA-Infused Multi-Tenant Engine
 ├── TransactionWorkflow_ApproachD.zip    # Strategic Hybrid (⭐ Recommended)
 ├── buildAll.ps1                         # One-click extract + build all 3
-├── testAll.ps1                          # Full integration test suite (Docker + API)
+├── testAll.ps1                          # Full integration test suite v2 (Docker + API + auto-fixes)
 ├── Backend_Home_Assignment.docx         # Original assignment brief
 ├── Readme.md                            # ← You are here
 │
 ├── approach_analysis.md                 # Deep analysis of all 4 approaches (A, B, C, D)
 ├── approach_analysis.jsx                # Interactive React comparison UI
 ├── approaches_comparison.md             # Side-by-side flow comparison (A vs B vs D)
+├── agent.md                             # V17 skill prompt library for AI-assisted extensions
 ├── plan_diagram.mermaid                 # Visual phase dependency graph
 │
 ├── FINAL_STATE.md                       # Phase 1–4 completion tracking
@@ -171,6 +172,7 @@ CREATED → VALIDATED → PROCESSING → COMPLETED
 |----------|---------------|
 | [`approach_analysis.md`](approach_analysis.md) | Deep dive into all 4 approaches (A, B, C, D) with phase plans, V17 skill mapping, positive/negative examples, and recovery strategy |
 | [`approaches_comparison.md`](approaches_comparison.md) | Side-by-side flow comparison: how Create Transaction and Execute Transition work differently in A vs B vs D |
+| [`agent.md`](agent.md) | V17 prompt library: copy-paste prompts for AI agents to implement configurable tasks, multi-project workflows, permissions, and SSO |
 | [`approach_analysis.jsx`](approach_analysis.jsx) | Interactive React component for visual approach comparison |
 | [`plan_diagram.mermaid`](plan_diagram.mermaid) | Phase dependency graph (DevOps → Validation → API Quality → Documentation) |
 | [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) | Requirements R1–R7: engine purity, exception middleware, health checks, security, dependency fixes |
@@ -189,6 +191,8 @@ CREATED → VALIDATED → PROCESSING → COMPLETED
 4. Reports build status with error highlighting
 ```
 
+> **Note:** `testAll.ps1` applies an additional runtime fix: `Migrate()` → `EnsureCreated()` in `Program.cs` because no EF migration files exist in the zips. The `buildAll.ps1` only handles compilation — the migration fix is only needed when actually running the containers.
+
 Expected output:
 ```
 === TransactionWorkflow_ApproachA ===
@@ -206,14 +210,24 @@ BUILD OK
 
 ---
 
-## 🧪 testAll.ps1 — Full Integration Test Suite
+## 🧪 testAll.ps1 — Full Integration Test Suite (v2)
 
-Runs Docker-based end-to-end tests against all 3 approaches sequentially. For each approach it spins up containers, waits for the API, runs 11 tests, tears down, and moves to the next.
+Runs Docker-based end-to-end tests against all 3 approaches sequentially. For each approach it extracts fresh from zip, applies automatic fixes, spins up containers, waits for the API, runs 11 tests, tears down, and moves to the next.
 
 ### Usage
 ```powershell
 .\testAll.ps1
 ```
+
+### Automatic Fixes Applied Before Testing
+
+The script detects and patches known issues before building each approach:
+
+| Fix | What | Why |
+|-----|------|-----|
+| `Migrate()` → `EnsureCreated()` | Replaces EF migration call in `Program.cs` | No EF migration files exist — `EnsureCreated()` builds schema from model |
+| Misplaced `using` | Moves `using TransactionWorkflow.API.Middleware;` to top of file (B, D) | Prevents compilation error |
+| Entity-type routes | Uses `/admin/workflow/transaction/` for Approach B | B's multi-tenant admin routes are scoped by entity type |
 
 ### What It Tests
 
@@ -233,8 +247,8 @@ Runs Docker-based end-to-end tests against all 3 approaches sequentially. For ea
 
 ### Test Flow Per Approach
 ```
-Extract zip → Patch Program.cs (B,D) → docker-compose up → Wait for API
-→ Run 11 API tests → docker-compose down → Next approach
+Extract zip → Fix Migrate/using/routes → docker-compose up → Wait for API (90s max)
+→ Run 11 API tests (with error body capture) → docker-compose down → Next approach
 ```
 
 ### Output
@@ -250,20 +264,187 @@ Extract zip → Patch Program.cs (B,D) → docker-compose up → Wait for API
     [PASS] Create Transaction
     ...
 
-  TOTAL: 33 passed, 0 failed  |  Time: 8.2 minutes
+  Approach B (Multi-Tenant DNA)
+  --------------------------------------------------
+    [PASS] Docker Build
+    ...
+
+  Approach D (Strategic Hybrid)
+  --------------------------------------------------
+    [PASS] Docker Build
+    ...
+
+  TOTAL: 33 passed, 0 failed  |  Time: 8.2 min
 ============================================================
 ```
 
-A `TEST_REPORT.md` is auto-generated with the full results table.
+A `TEST_REPORT.md` is auto-generated with the full results table, fix log, and per-test detail column.
 
 ---
 
-## ⏱️ Time Investment
+## 🔬 Deep Dive: How the Approaches Differ
 
-| Phase | Scope | Time |
-|-------|-------|------|
-| Initial build (A, B, D) | All 3 approaches from scratch | ~12h |
-| Phase 1–4 | Docker, validation, ProblemDetails, Mermaid, READMEs | ~3h |
-| Improvement Plan (R1–R7) | Engine purity, middleware, health, security, deps | ~2h |
-| V17 Integration | AI configs, skill maps, cross-approach documentation | ~2h |
-| **Total** | | **~19h** |
+The three approaches solve the same API contract but diverge fundamentally in how the **engine** and **database** work together.
+
+### The Engine Signature — The Key Differentiator
+
+**Approach A** — the engine knows it's dealing with a Transaction:
+```csharp
+public async Task TransitionAsync(Transaction transaction, string targetStatus)
+{
+    // Queries specific "TransactionTransitions" table
+}
+```
+
+**Approach D** — the engine is generic in behavior but still single-tenant:
+```csharp
+public async Task<DataProcessResult<TransitionOutcome>> TryTransitionAsync(
+    int currentStatusId, string targetStatus, int priorTransitionCount, ...)
+{
+    // Queries "WorkflowTransitions" table (single scope)
+}
+```
+
+**Approach B** — the engine doesn't know what a "Transaction" is:
+```csharp
+public async Task<DataProcessResult<TransitionOutcome>> TryTransitionAsync(
+    string entityType,           // ← THE KEY DIFFERENTIATOR
+    string currentStatusName, int currentStatusId, string targetStatusName, ...)
+{
+    // Queries SHARED table filtered by EntityType
+    var allowed = await _repo.GetAllowedTransitionsAsync(entityType, currentStatusId);
+}
+```
+
+### Flow Comparison: Creating a Transaction
+
+| Step | Approach A | Approach B | Why B differs |
+|------|-----------|-----------|---------------|
+| Service call | `_engine.GetInitialStatusAsync()` | `_engine.GetInitialStatusAsync("transaction")` | B needs the `entityType` to find the right workflow in shared tables |
+| DB query | `WHERE IsInitial = 1` | `WHERE IsInitial = 1 AND EntityType = 'transaction'` | Same table holds initial states for Orders, Tickets, etc. |
+| Result | `WorkflowStatus` | `WorkflowStatus` | Same output, different source scope |
+
+### Flow Comparison: Executing a Transition
+
+| Step | Approach A | Approach B | Architectural shift |
+|------|-----------|-----------|-------------------|
+| Adapter | `engine.TransitionAsync(txn, target)` | `engine.TryTransitionAsync("transaction", ...)` | B's `TransactionService` acts as an Adapter from specific → generic |
+| Isolation | Checks `FromId` / `ToId` | Checks `FromId` / `ToId` **AND** `EntityType` | B ensures a Transaction can't use an Order's transition rule |
+| Extensibility | New entity = new engine + tables + service | New entity = **SQL INSERT only** | B achieves the Freedom Machine ideal |
+| DB design | FK to `TransactionStatus` | FK to `WorkflowStatus` + composite index `(EntityType, Name)` | Uniqueness within scope, not globally |
+
+### Summary of Tradeoffs
+
+| Dimension | A (Vanilla) | B (Multi-Tenant) | D (Hybrid) |
+|-----------|-------------|-------------------|------------|
+| Complexity | Low | High (conceptually) | Medium |
+| Flexibility | Low | **Maximum** | Medium (JSON rules) |
+| Code reuse | None | **Total** (shared engine) | High (patterns) |
+| New entity cost | New engine + tables + service | **Zero code — SQL only** | New adapter + service |
+| Best for | Single microservice | Platform / monolith core | Enterprise microservice |
+
+---
+
+## 🔮 Extension Roadmap — From "Transaction Engine" to "Workflow Platform"
+
+Each approach shipped here solves the assignment. The extensions below are **not implemented** — they are architectural suggestions showing how the V17 patterns would scale to real-world requirements. They demonstrate **why** the pattern choices matter: what costs one line in Approach B costs a full rebuild in Approach A.
+
+### Extension 1: Configurable Tasks (JSON Data Columns)
+
+**Problem:** Different departments want different fields — Sales needs "Priority", Finance needs "DueDate", Support needs "CustomerSegment". Adding columns for each is unsustainable.
+
+**V17 Pattern:** Skill 05 (Database Fabric) — add a `Dictionary<string, object> Metadata` property stored as a JSON column via EF Core `ValueConversion`. No schema changes needed per field.
+
+```csharp
+// Example of how the API would look after implementing this extension:
+POST /transactions
+{ "amount": 500, "currency": "USD", "metadata": { "priority": "high", "department": "sales" } }
+```
+
+| Approach | Effort | How |
+|----------|--------|-----|
+| A | 🟡 Medium | Add JSON column + ValueConverter to Transaction entity |
+| B | 🟢 Low | `EntityType` scoping already supports diverse data shapes — add JSON column |
+| D | 🟢 Low | `Metadata` dictionary pattern already on Transaction — extend it |
+
+### Extension 2: Multi-Project Workflows
+
+**Problem:** Project A needs "ToDo → Done" while Project B needs "Draft → Review → Publish". One workflow doesn't fit all.
+
+**V17 Pattern:** Skill 08 (Flow Definition) — add a nullable `ProjectId` foreign key to `WorkflowStatus` and `WorkflowTransition`. Project-specific transitions override global defaults.
+
+```sql
+-- Project-scoped workflow (no code changes in B)
+INSERT INTO WorkflowStatuses (EntityType, Name, IsInitial, ProjectId)
+VALUES ('task', 'DRAFT', 1, @projectBId);
+```
+
+| Approach | Effort | How |
+|----------|--------|-----|
+| A | 🔴 High | New tables, new engine, new service |
+| B | 🟢 Low | Add `ProjectId` column + repository fallback logic |
+| D | 🟡 Medium | Add `ProjectId` + update repository queries |
+
+### Extension 3: Role-Based Transition Permissions
+
+**Problem:** Only managers should be able to approve transitions from "Validated" to "Processing". Currently anyone can.
+
+**V17 Pattern:** Skill 02 (Object Processor) — permissions are **data, not code**. Store `{ "allowedRoles": ["Manager", "Admin"] }` in the transition's `Rules` JSON column. The generic `RuleEvaluator` checks it.
+
+```json
+// WorkflowTransitions.Rules column:
+{ "allowedRoles": ["Manager", "Admin"], "maxRetries": 3 }
+```
+
+The API Gateway (Skill 15) extracts user claims from the JWT token and passes them into the engine's `context` dictionary. The engine never imports auth libraries.
+
+| Approach | Effort | How |
+|----------|--------|-----|
+| A | 🔴 High | Hardcoded `if (role == "Admin")` in controller — not scalable |
+| B | 🟢 Low | Add `allowedRoles` key to `EvaluateTransitionRules` — 10 lines |
+| D | 🟢 Low | Same as B — rules engine already exists |
+
+### Extension 4: SSO / Flexible Authentication
+
+**Problem:** Customer A uses Azure AD, Customer B uses Okta, Customer C uses Google. Need to support all without code changes.
+
+**V17 Pattern:** Skill 15 (API Gateway) — auth configuration lives in `appsettings.json`, not in code. A Strategy Pattern reads `Authority`, `ClientId`, `Audience` from config and wires up `JwtBearer` automatically.
+
+```json
+// appsettings.json — swap SSO provider with zero code:
+"Auth": { "Authority": "https://login.microsoftonline.com/...", "ClientId": "...", "Audience": "..." }
+```
+
+**Key constraint:** The Domain project never depends on auth libraries. Authentication is purely an API/Infrastructure concern.
+
+| Approach | Effort | How |
+|----------|--------|-----|
+| A | 🟡 Medium | Add `AddFlexibleAuth()` extension in API project |
+| B | 🟡 Medium | Same — auth is orthogonal to the engine |
+| D | 🟡 Medium | Same — auth is orthogonal to the engine |
+
+### Extension Summary (Estimated Effort If Implemented)
+
+| Extension | V17 Skill | A | B | D |
+|-----------|-----------|---|---|---|
+| Configurable tasks (JSON fields) | Skill 05 | 🟡 Add column | ✅ Pattern ready | ✅ Pattern ready |
+| Multi-project workflows | Skill 08 | 🔴 Rebuild | 🟢 Add scope column | 🟡 Add scope column |
+| Role-based permissions | Skill 02 | 🔴 Hardcode | 🟢 Add JSON rule key | 🟢 Add JSON rule key |
+| SSO / flexible auth | Skill 15 | 🟡 Config extension | 🟡 Config extension | 🟡 Config extension |
+
+> **Note:** The `agent.md` file contains ready-to-use AI prompts engineered to implement each extension following V17 patterns. Attach it to Copilot or Claude and paste the prompts.
+
+---
+
+## 🧠 AI Agent Configuration
+
+Each approach ships with pre-configured AI agent context files:
+
+| Agent | Config File | Purpose |
+|-------|-------------|---------|
+| GitHub Copilot | `.github/copilot-instructions.md` | Inline suggestions following V17 patterns |
+| Claude Code | `CLAUDE.md` | Project-aware coding with architecture rules |
+| General / Any AI | `.ai-config/project-architecture.md` | Philosophy + pattern reference |
+| Skill Library | `.ai-config/v17-skill-map.md` | V17 skill → actual file mapping |
+
+The `.ai-config/` folder contains prompt-engineered context so AI agents extend the project using the correct patterns (DataProcessResult, JSON rules, generic engines) instead of writing legacy code.
