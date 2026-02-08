@@ -1,7 +1,7 @@
 ##############################################################################
-# Transaction Workflow Engine - Full Test Suite v3
+# Transaction Workflow Engine - Full Test Suite v4
 # Tests all 3 approaches: A, B, D
-# All fixes baked into source - no runtime patching.
+# Feature: Internal Keyvault Simulation (Docker Secrets)
 # Usage: powershell -ExecutionPolicy Bypass -File .\testAll.ps1
 ##############################################################################
 
@@ -57,14 +57,39 @@ function Test-Approach {
     Write-Host ""
     Write-Host "  [1/5] Extracting from zip..." -ForegroundColor Cyan
     $zipFile = Join-Path $BASE "${folder}.zip"
-    if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+    if (Test-Path $dir) {
+        # Try normal removal first, fall back to cmd rmdir, then extract on top
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+        if (Test-Path $dir) {
+            cmd /c "rmdir /s /q `"$dir`"" 2>$null
+            Start-Sleep -Milliseconds 500
+        }
+        if (Test-Path $dir) {
+            Write-Host "  WARNING: Could not fully clean $dir - extracting on top" -ForegroundColor Yellow
+        }
+    }
     Expand-Archive -Path $zipFile -DestinationPath $dir -Force
+
+    # --- STEP 1.5: Setup Internal Keyvault (Docker Secret) ---
+    Write-Host "  [1.5/5] Provisioning Internal Keyvault (Secrets)..." -ForegroundColor Cyan
+    $dbPassword = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { "YourStrong!Passw0rd" }
+    # Write secret to TEMP (not Documents) to avoid antivirus false positives
+    $secretFile = Join-Path $env:TEMP "txn_workflow_db_password.txt"
+    [IO.File]::WriteAllText($secretFile, $dbPassword)
+    # Docker Compose reads SECRET_FILE env var to locate the secret
+    $env:SECRET_FILE = $secretFile
+    Write-Host "        Secret provisioned: $secretFile" -ForegroundColor DarkGray
 
     # --- STEP 2: Docker Compose Up ---
     Write-Host ""
     Write-Host "  [2/5] Starting Docker containers..." -ForegroundColor Cyan
     Push-Location $dir
     docker-compose down -v 2>&1 | Out-Null
+
+    # Pass DB_PASSWORD to env for SQL Server container initialization (Infrastructure)
+    # The API will read from the file (Keyvault pattern)
+    $env:DB_PASSWORD = $dbPassword
+
     $buildOutput = docker-compose up --build -d 2>&1
     $buildOk = $LASTEXITCODE -eq 0
     $testResults += Write-Test "Docker Build" $buildOk ""
@@ -166,7 +191,7 @@ function Test-Approach {
 
     # --- STEP 5: Error Paths & Features ---
     Write-Host ""
-    Write-Host "  [5/5] Running Error Path & Feature tests..." -ForegroundColor Cyan
+    Write-Host "  [5/5] Running Error Path and Feature tests..." -ForegroundColor Cyan
 
     # T6: Invalid Input
     try {
@@ -232,6 +257,10 @@ function Test-Approach {
     Write-Host "  Stopping containers..." -ForegroundColor Yellow
     docker-compose down -v 2>&1 | Out-Null
     Pop-Location
+    # Remove temp secret file
+    if ($env:SECRET_FILE -and (Test-Path $env:SECRET_FILE)) {
+        Remove-Item $env:SECRET_FILE -Force -ErrorAction SilentlyContinue
+    }
 
     return $testResults
 }
@@ -243,10 +272,10 @@ function Test-Approach {
 Set-Location $BASE
 $startTime = Get-Date
 
-Write-Header "TRANSACTION WORKFLOW ENGINE - FULL TEST SUITE v3"
+Write-Header "TRANSACTION WORKFLOW ENGINE - FULL TEST SUITE v4"
 Write-Host "  Base: $BASE" -ForegroundColor DarkGray
 Write-Host "  Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
-Write-Host "  Mode: Clean test - all fixes baked into source" -ForegroundColor DarkGray
+Write-Host "  Mode: Internal Keyvault (Docker Secrets) Enabled" -ForegroundColor DarkGray
 
 $allResults = [ordered]@{}
 
@@ -296,14 +325,11 @@ $reportPath = Join-Path $BASE "TEST_REPORT.md"
 $report = @()
 $report += "# Test Report - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 $report += ""
-$report += "## V2 Improvements - baked into source"
-$report += "- API Key authentication with dev-bypass"
-$report += "- Authorize on all controllers, AdminOnly policy on admin"
-$report += "- CORS configuration with configurable allowed origins"
-$report += "- Environment-aware exception middleware"
-$report += "- XML documentation in Swagger UI"
-$report += "- EnsureCreated with migration upgrade path documented"
-$report += "- All original bug fixes: AsNoTracking, FK-only nav, entity reload"
+$report += "## V4 Improvements"
+$report += "- Internal Keyvault enabled: Passwords loaded via Docker Secrets"
+$report += "- API reads password from /run/secrets/db_password at startup"
+$report += "- Password removed from appsettings.json and API environment variables"
+$report += "- V2/V3 fixes included (Auth, CORS, Swagger XML, Bug fixes)"
 $report += ""
 $report += "| Approach | Test | Result | Detail |"
 $report += "|----------|------|--------|--------|"
@@ -328,8 +354,15 @@ $folders = @("TransactionWorkflow_ApproachA", "TransactionWorkflow_ApproachB", "
 foreach ($f in $folders) {
     $dir = Join-Path $BASE $f
     if (Test-Path $dir) {
-        Remove-Item -Recurse -Force $dir
-        Write-Host "    Removed $f" -ForegroundColor DarkGray
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+        if (Test-Path $dir) {
+            cmd /c "rmdir /s /q `"$dir`"" 2>&1 | Out-Null
+        }
+        if (Test-Path $dir) {
+            Write-Host "    Could not fully remove $f (VS may be locking files)" -ForegroundColor Yellow
+        } else {
+            Write-Host "    Removed $f" -ForegroundColor DarkGray
+        }
     }
 }
 Write-Host "  Cleanup complete." -ForegroundColor Green

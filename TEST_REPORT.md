@@ -1,13 +1,10 @@
-﻿# Test Report - 2026-02-08 15:30:52
+﻿# Test Report - 2026-02-08 18:10:01
 
-## V2 Improvements - baked into source
-- API Key authentication with dev-bypass
-- Authorize on all controllers, AdminOnly policy on admin
-- CORS configuration with configurable allowed origins
-- Environment-aware exception middleware
-- XML documentation in Swagger UI
-- EnsureCreated with migration upgrade path documented
-- All original bug fixes: AsNoTracking, FK-only nav, entity reload
+## V4 Improvements
+- Internal Keyvault enabled: Passwords loaded via Docker Secrets
+- API reads password from /run/secrets/db_password at startup
+- Password removed from appsettings.json and API environment variables
+- V2/V3 fixes included (Auth, CORS, Swagger XML, Bug fixes)
 
 | Approach | Test | Result | Detail |
 |----------|------|--------|--------|
@@ -57,4 +54,4 @@
 | Approach D - Strategic Hybrid | Admin: Get Statuses | PASS | Found 5 statuses |
 | Approach D - Strategic Hybrid | Admin: Get Transitions | PASS | Found 5 transitions |
 
-**Total: 45 passed, 0 failed in 1.7 minutes**
+**Total: 45 passed, 0 failed in 1.9 minutes**
